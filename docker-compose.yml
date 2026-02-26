@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - API_ID=${API_ID}
+      - API_HASH=${API_HASH}
+      - MONGO_URL=${MONGO_URL}
+      - MAIN_CHANNEL_ID=${MAIN_CHANNEL_ID}
+      - PORT=3000
+    restart: unless-stopped
