@@ -2,7 +2,13 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
-import { Api } from 'telegram/tl/index.js';
+// import { Api } from 'telegram/tl/index.js';  // လိုအပ်ရင်ပဲ ဖွင့်ပါ (အခု မလိုသေးဘူး)
+
+// local development မှာပဲ prompt သုံးမယ် (Railway/production မှာ မသုံးဘူး)
+let input;
+if (process.env.NODE_ENV !== 'production') {
+  input = (await import('input')).default;
+}
 
 let client = null;
 
@@ -13,23 +19,31 @@ export async function initClient(sessionString = '', db) {
   client = new TelegramClient(session, Number(process.env.API_ID), process.env.API_HASH, {
     connectionRetries: 5,
     autoReconnect: true,
-    floodSleepThreshold: 60,          // flood ကို ပိုကောင်းအောင် handle
+    floodSleepThreshold: 60,           // flood ဖြစ်ရင် အလိုအလျောက် စောင့်ပေးမယ်
   });
 
   if (sessionString) {
-    // session ရှိရင် connect ပဲ လုပ်၊ login မလုပ်တော့ဘူး
+    // saved session ရှိရင် connect ပဲ လုပ်၊ login မလုပ်တော့ဘူး
     await client.connect();
     console.log('Using saved session from MongoDB - no new login required');
   } else {
-    // ပထမဆုံး တစ်ခါပဲ login လုပ်မယ် (local မှာ လုပ်ပြီးရင် ဒီ block ကို skip ဖြစ်မယ်)
+    // production (Railway) မှာ session မရှိရင် ရပ်ပစ်မယ်
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'No session found in MongoDB. ' +
+        'Please run the app locally first to login and generate session.'
+      );
+    }
+
+    // local dev မှာပဲ login prompt ထုတ်မယ်
     await client.start({
-      phoneNumber: async () => await input.text('Phone number (e.g. +66...): '),
+      phoneNumber: async () => await input.text('Phone number (e.g. +669xxxxxxxx): '),
       password: async () => await input.text('2FA Password (if enabled): '),
       phoneCode: async () => await input.text('OTP code: '),
       onError: (err) => {
         console.error('Login error:', err);
-        if (err instanceof FloodWaitError) {
-          console.log(`Flood wait required: ${err.seconds} seconds`);
+        if (err.code === 420) {  // FLOOD
+          console.log(`Flood wait required: ${err.seconds || 'unknown'} seconds`);
         }
       },
     });
@@ -40,10 +54,10 @@ export async function initClient(sessionString = '', db) {
       { $set: { sessionString: savedSession } },
       { upsert: true }
     );
-    console.log('New session saved to MongoDB');
+    console.log('New session saved to MongoDB successfully');
   }
 
-  // Auto-sync အတွက် event handler
+  // Channel ထဲက ဖိုင်အသစ်တွေ ရောက်လာရင် auto ထည့်မယ်
   client.addEventHandler(async (event) => {
     const msg = event.message;
     if (Number(msg.chatId) !== Number(process.env.MAIN_CHANNEL_ID)) return;
@@ -55,13 +69,16 @@ export async function initClient(sessionString = '', db) {
       { $set: { ...fileInfo, folder: 'Uncategorized' } },
       { upsert: true }
     );
-    console.log(`New file detected: ${fileInfo.fileName} → Uncategorized`);
+    console.log(`New file auto-added: ${fileInfo.fileName} → Uncategorized`);
   }, new NewMessage({ chats: [Number(process.env.MAIN_CHANNEL_ID)] }));
 
-  console.log('Telegram client initialized');
+  console.log('Telegram client initialized and ready');
   return client;
 }
 
+/**
+ * Message ကနေ file metadata ထုတ်ယူတဲ့ helper
+ */
 function extractFileInfo(msg) {
   const media = msg.media.document || msg.media.photo;
   const doc = msg.media.document;
@@ -77,6 +94,9 @@ function extractFileInfo(msg) {
   };
 }
 
+/**
+ * Browser ကနေ ဖိုင်တင်တဲ့ function
+ */
 export async function uploadFile(client, buffer, fileName, folder = 'Uncategorized') {
   const result = await client.sendFile(Number(process.env.MAIN_CHANNEL_ID), {
     file: buffer,
@@ -91,12 +111,18 @@ export async function uploadFile(client, buffer, fileName, folder = 'Uncategoriz
   return result.id;
 }
 
+/**
+ * File stream အတွက် (download / video streaming)
+ */
 export async function getFileStream(client, messageId) {
   const [msg] = await client.getMessages(Number(process.env.MAIN_CHANNEL_ID), { ids: [messageId] });
-  if (!msg?.media) throw new Error('No media found');
+  if (!msg?.media) throw new Error('No media found in message');
   return client.iterDownload({ file: msg.media.document || msg.media.photo });
 }
 
+/**
+ * Folder အလိုက် files ယူတယ်
+ */
 export async function getFilesByFolder(db, folder) {
   return await db.collection('files')
     .find({ folder })
@@ -104,11 +130,17 @@ export async function getFilesByFolder(db, folder) {
     .toArray();
 }
 
+/**
+ * ရှိနေတဲ့ folder အားလုံး ယူတယ်
+ */
 export async function getAllFolders(db) {
   const folders = await db.collection('files').distinct('folder');
   return folders.length ? folders : ['Uncategorized'];
 }
 
+/**
+ * Virtual folder ပြောင်းတယ် (MongoDB မှာပဲ ပြောင်း၊ Telegram မထိဘူး)
+ */
 export async function moveToFolder(db, messageId, newFolder) {
   await db.collection('files').updateOne(
     { messageId },
@@ -116,9 +148,12 @@ export async function moveToFolder(db, messageId, newFolder) {
   );
 }
 
+/**
+ * Channel ထဲက အဟောင်း ဖိုင်တွေ initial sync လုပ်တယ်
+ */
 export async function syncChannel(client, db) {
   const messages = await client.getMessages(Number(process.env.MAIN_CHANNEL_ID), {
-    limit: 200,
+    limit: 200,  // လိုအပ်ရင် တိုးလို့ ရတယ်
   });
 
   const bulk = [];
@@ -133,6 +168,7 @@ export async function syncChannel(client, db) {
       }
     });
   }
+
   if (bulk.length) await db.collection('files').bulkWrite(bulk);
   return messages.length;
 }
