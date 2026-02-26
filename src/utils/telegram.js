@@ -13,23 +13,37 @@ export async function initClient(sessionString = '', db) {
   client = new TelegramClient(session, Number(process.env.API_ID), process.env.API_HASH, {
     connectionRetries: 5,
     autoReconnect: true,
+    floodSleepThreshold: 60,          // flood ကို ပိုကောင်းအောင် handle
   });
 
-  await client.start({
-    phoneNumber: async () => 'manual', // ပထမ local မှာ run ပြီး session save ပါ
-    password: async () => 'manual',
-    phoneCode: async () => 'manual',
-    onError: console.error,
-  });
+  if (sessionString) {
+    // session ရှိရင် connect ပဲ လုပ်၊ login မလုပ်တော့ဘူး
+    await client.connect();
+    console.log('Using saved session from MongoDB - no new login required');
+  } else {
+    // ပထမဆုံး တစ်ခါပဲ login လုပ်မယ် (local မှာ လုပ်ပြီးရင် ဒီ block ကို skip ဖြစ်မယ်)
+    await client.start({
+      phoneNumber: async () => await input.text('Phone number (e.g. +66...): '),
+      password: async () => await input.text('2FA Password (if enabled): '),
+      phoneCode: async () => await input.text('OTP code: '),
+      onError: (err) => {
+        console.error('Login error:', err);
+        if (err instanceof FloodWaitError) {
+          console.log(`Flood wait required: ${err.seconds} seconds`);
+        }
+      },
+    });
 
-  const savedSession = client.session.save();
-  await db.collection('sessions').updateOne(
-    { user: 'default' },
-    { $set: { sessionString: savedSession } },
-    { upsert: true }
-  );
+    const savedSession = client.session.save();
+    await db.collection('sessions').updateOne(
+      { user: 'default' },
+      { $set: { sessionString: savedSession } },
+      { upsert: true }
+    );
+    console.log('New session saved to MongoDB');
+  }
 
-  // Auto add new files from channel (upload or forward)
+  // Auto-sync အတွက် event handler
   client.addEventHandler(async (event) => {
     const msg = event.message;
     if (Number(msg.chatId) !== Number(process.env.MAIN_CHANNEL_ID)) return;
@@ -41,9 +55,10 @@ export async function initClient(sessionString = '', db) {
       { $set: { ...fileInfo, folder: 'Uncategorized' } },
       { upsert: true }
     );
+    console.log(`New file detected: ${fileInfo.fileName} → Uncategorized`);
   }, new NewMessage({ chats: [Number(process.env.MAIN_CHANNEL_ID)] }));
 
-  console.log('✅ Telegram client + auto-folder sync ready');
+  console.log('Telegram client initialized');
   return client;
 }
 
@@ -69,10 +84,10 @@ export async function uploadFile(client, buffer, fileName, folder = 'Uncategoriz
     caption: `Uploaded via Web • ${fileName}`,
   });
 
-  const fileInfo = extractFileInfo(result); // result က message object
+  const fileInfo = extractFileInfo(result);
   fileInfo.folder = folder;
 
-  await db.collection('files').insertOne(fileInfo); // db ကို initClient ကနေ pass လုပ်ပါ
+  await db.collection('files').insertOne(fileInfo);
   return result.id;
 }
 
@@ -101,11 +116,9 @@ export async function moveToFolder(db, messageId, newFolder) {
   );
 }
 
-// Initial sync (old files တွေ ထည့်ဖို့)
 export async function syncChannel(client, db) {
   const messages = await client.getMessages(Number(process.env.MAIN_CHANNEL_ID), {
     limit: 200,
-    filter: new Api.InputMessagesFilterDocument(), // လိုရင် ပြင်ပါ
   });
 
   const bulk = [];
