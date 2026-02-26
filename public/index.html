@@ -1,60 +1,82 @@
 <!DOCTYPE html>
 <html lang="my" class="bg-gray-50">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Telegram Cloud Drive</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="/main.js"></script>
 </head>
 <body class="min-h-screen antialiased">
   <div class="flex h-screen">
-    <!-- Sidebar: Folders -->
+    <!-- Sidebar Folders -->
     <aside class="w-64 bg-white border-r border-gray-200 overflow-y-auto">
       <div class="p-6">
         <h2 class="text-xl font-bold mb-6">Folders</h2>
-        <ul id="folder-list" class="space-y-2">
-          <!-- Folders တွေ JS ကနေ ထည့်မယ် -->
-        </ul>
+        <ul id="folder-list" class="space-y-2"></ul>
         <button id="sync-btn" class="mt-6 w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700">
-          Sync Channel (Refresh Files)
+          Sync Channel
         </button>
       </div>
     </aside>
 
-    <!-- Main Content -->
+    <!-- Main -->
     <main class="flex-1 flex flex-col">
-      <header class="bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+      <header class="bg-white border-b p-4 flex justify-between items-center">
         <h1 class="text-2xl font-semibold">Telegram Cloud Drive</h1>
-        <div class="flex items-center space-x-4">
+        <div>
           <span id="current-folder" class="font-medium text-gray-700">Uncategorized</span>
         </div>
       </header>
 
       <div class="p-6 flex-1 overflow-y-auto">
-        <!-- Upload Section -->
-        <div class="mb-8 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <h3 class="text-lg font-medium mb-4">Upload New File</h3>
-          <div class="flex flex-wrap items-end gap-4">
-            <input type="file" id="file-input" class="block w-full max-w-xs text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-            <select id="upload-folder" class="border border-gray-300 rounded px-3 py-2 text-sm">
-              <!-- Folders တွေ ထည့်မယ် -->
-            </select>
-            <button onclick="uploadFile()" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">
-              Upload
+        <!-- Login Section (shown if not logged in) -->
+        <div id="login-section" class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md border hidden">
+          <h2 class="text-2xl font-bold mb-6 text-center">Telegram နဲ့ ဝင်ရန်</h2>
+
+          <div id="step-phone" class="space-y-4">
+            <input type="tel" id="phone" placeholder="+669xxxxxxxx" class="w-full border p-3 rounded">
+            <button onclick="sendCode()" class="w-full bg-indigo-600 text-white py-3 rounded hover:bg-indigo-700">
+              OTP ပို့ရန်
             </button>
           </div>
+
+          <div id="step-code" class="space-y-4 hidden">
+            <input type="text" id="code" placeholder="OTP ကုဒ်" class="w-full border p-3 rounded">
+            <button onclick="verifyCode()" class="w-full bg-green-600 text-white py-3 rounded hover:bg-green-700">
+              အတည်ပြုရန်
+            </button>
+          </div>
+
+          <div id="step-2fa" class="space-y-4 hidden">
+            <input type="password" id="password" placeholder="2FA Password" class="w-full border p-3 rounded">
+            <button onclick="verify2FA()" class="w-full bg-purple-600 text-white py-3 rounded hover:bg-purple-700">
+              2FA အတည်ပြုရန်
+            </button>
+          </div>
+
+          <p id="login-status" class="mt-4 text-center text-red-600"></p>
         </div>
 
-        <!-- Files Grid -->
-        <div id="files-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <!-- File cards တွေ JS ကနေ ထည့်မယ် -->
+        <!-- Upload & Files -->
+        <div id="main-content" class="hidden">
+          <div class="mb-8 bg-white p-6 rounded-lg shadow-sm border">
+            <h3 class="text-lg font-medium mb-4">ဖိုင်အသစ်တင်ရန်</h3>
+            <div class="flex flex-wrap items-end gap-4">
+              <input type="file" id="file-input" class="block w-full max-w-xs text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-indigo-50 file:text-indigo-700">
+              <select id="upload-folder" class="border rounded px-3 py-2 text-sm"></select>
+              <button onclick="uploadFile()" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">
+                တင်ရန်
+              </button>
+            </div>
+          </div>
+
+          <div id="files-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
         </div>
       </div>
     </main>
   </div>
 
-  <!-- Status Toast -->
   <div id="toast" class="fixed bottom-4 right-4 hidden px-6 py-3 rounded shadow-lg text-white"></div>
 </body>
 </html>
