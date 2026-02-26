@@ -45,10 +45,10 @@ export async function verifyCode(loginId, code) {
   data.phoneCodeResolve(code);
 
   try {
-    // timeout ထည့်ပြီး စောင့်မယ် (max 45 စက္ကန့်)
+    // timeout ကို 90 စက္ကန့်အထိ တိုးထားတယ် (data center migration ကြောင့် ကြာနိုင်လို့)
     await Promise.race([
       data.startPromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Telegram OTP verification timeout')), 45000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Telegram OTP verification timeout')), 90000))
     ]);
 
     const sessionString = data.client.session.save();
@@ -60,10 +60,13 @@ export async function verifyCode(loginId, code) {
       return { success: false, needs2FA: true, loginId };
     }
     if (e.message.includes('timeout')) {
-      throw new Error('OTP verification timeout. Please try again.');
+      throw new Error('Telegram OTP verification timeout. ထပ်ကြိုးစားပါ။');
+    }
+    if (e.code === 420) {  // FLOOD_WAIT
+      throw new Error(`Flood wait: ${e.seconds || 'unknown'} စက္ကန့် စောင့်ရပါမယ်။`);
     }
     console.error('Verify code error:', e);
-    throw e;
+    throw new Error('OTP အတည်ပြုမရပါ။ ထပ်ကြိုးစားပါ။');
   }
 }
 
@@ -73,10 +76,16 @@ export async function verify2FA(loginId, password) {
 
   data.passwordResolve(password);
 
-  await data.startPromise;
-  const sessionString = data.client.session.save();
-  pendingLogins.delete(loginId);
-  return { success: true, sessionString };
+  try {
+    await data.startPromise;
+    const sessionString = data.client.session.save();
+    pendingLogins.delete(loginId);
+    return { success: true, sessionString };
+  } catch (e) {
+    pendingLogins.delete(loginId);
+    console.error('Verify 2FA error:', e);
+    throw new Error('2FA အတည်ပြုမရပါ။ Password ပြန်စစ်ပါ။');
+  }
 }
 
 export async function createClient(sessionString) {
