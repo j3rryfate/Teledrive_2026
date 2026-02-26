@@ -48,7 +48,7 @@ export async function verifyCode(loginId, code) {
     // timeout ကို 90 စက္ကန့်အထိ တိုးထားတယ် (data center migration ကြောင့် ကြာနိုင်လို့)
     await Promise.race([
       data.startPromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Telegram OTP verification timeout')), 90000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Telegram OTP verification timeout')), 120000))
     ]);
 
     const sessionString = data.client.session.save();
@@ -168,3 +168,4 @@ export async function syncChannel(client, db, userId) {
   if (bulk.length) await db.collection('files').bulkWrite(bulk);
   return messages.length;
 }
+
