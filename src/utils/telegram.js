@@ -45,14 +45,24 @@ export async function verifyCode(loginId, code) {
   data.phoneCodeResolve(code);
 
   try {
-    await data.startPromise;
+    // timeout ထည့်ပြီး စောင့်မယ် (max 45 စက္ကန့်)
+    await Promise.race([
+      data.startPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Telegram OTP verification timeout')), 45000))
+    ]);
+
     const sessionString = data.client.session.save();
     pendingLogins.delete(loginId);
     return { success: true, sessionString };
   } catch (e) {
+    pendingLogins.delete(loginId);
     if (e.message.includes('PASSWORD_HASH_INVALID') || e.code === 401) {
       return { success: false, needs2FA: true, loginId };
     }
+    if (e.message.includes('timeout')) {
+      throw new Error('OTP verification timeout. Please try again.');
+    }
+    console.error('Verify code error:', e);
     throw e;
   }
 }
@@ -113,7 +123,10 @@ export async function getFileStream(client, messageId) {
 }
 
 export async function getFilesByFolder(db, userId, folder) {
-  return await db.collection('files').find({ userId, folder }).sort({ date: -1 }).toArray();
+  return await db.collection('files')
+    .find({ userId, folder })
+    .sort({ date: -1 })
+    .toArray();
 }
 
 export async function getAllFolders(db, userId) {
